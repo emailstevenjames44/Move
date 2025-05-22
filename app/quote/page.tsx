@@ -30,30 +30,100 @@ interface Room {
 export default function QuotePage() {
   const router = useRouter()
   const [step, setStep] = useState(1)
-  const [images, setImages] = useState<string[]>([])
+  const [images, setImages] = useState<string[]>([]) // Stores dataURLs of images with detections
   const [detectedFurniture, setDetectedFurniture] = useState<{ [key: string]: number }>({})
-  const [isProcessing, setIsProcessing] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false) // General processing state for "Continue" button
   const [activeTab, setActiveTab] = useState<string>("camera")
   const [rooms, setRooms] = useState<Room[]>([])
 
+  // New state variables for batch upload
+  const [uploadedImageFiles, setUploadedImageFiles] = useState<File[]>([])
+  const [currentImageIndexToProcess, setCurrentImageIndexToProcess] = useState(0)
+  const [imageToPassToDetector, setImageToPassToDetector] = useState<string | null>(null)
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false)
+
+
+  const processNextUploadedImage = () => {
+    console.log("[QuotePage] processNextUploadedImage called for index:", currentImageIndexToProcess);
+    if (currentImageIndexToProcess < uploadedImageFiles.length) {
+      const file = uploadedImageFiles[currentImageIndexToProcess];
+      const currentIndex = currentImageIndexToProcess; // Capture index for async callbacks
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          console.log("[QuotePage] FileReader success, setting imageToPassToDetector for index:", currentIndex);
+          setImageToPassToDetector(event.target.result.toString());
+        } else {
+          console.error("[QuotePage] FileReader error: No result for file at index", currentIndex, file.name);
+          setCurrentImageIndexToProcess(prev => prev + 1);
+        }
+      };
+      reader.onerror = () => { // Removed 'error' param as it's not standard on direct onerror
+        console.error("[QuotePage] FileReader error for index:", currentIndex, reader.error);
+        // TODO: Consider user-facing feedback if multiple files fail.
+        setCurrentImageIndexToProcess(prev => prev + 1);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // All images processed
+      setIsBatchProcessing(false)
+      setImageToPassToDetector(null) // Clear it once done
+      // Consider enabling the "Continue" button here or based on detectedFurniture
+    }
+  }
+
+  // Effect to trigger processing when currentImageIndexToProcess changes
+  // and we are in batch processing mode.
+  useEffect(() => {
+    console.log(
+        "[QuotePage] Batch processing effect triggered. Index:", currentImageIndexToProcess, 
+        "IsBatchProcessing:", isBatchProcessing, 
+        "DetectorReady:", !imageToPassToDetector,
+        "Files in batch:", uploadedImageFiles.length
+    );
+    if (isBatchProcessing && currentImageIndexToProcess < uploadedImageFiles.length) {
+        // Only call if imageToPassToDetector is null, meaning we are ready for the next one
+        // or the previous one has been "cleared" by handleImageCapture
+        if (imageToPassToDetector === null) {
+            processNextUploadedImage();
+        }
+    } else if (isBatchProcessing && currentImageIndexToProcess >= uploadedImageFiles.length) {
+        // Finished all uploads
+        console.log("[QuotePage] All uploaded images processed or attempted.");
+        setIsBatchProcessing(false);
+        setImageToPassToDetector(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentImageIndexToProcess, isBatchProcessing, uploadedImageFiles.length]);
+
+
   const handleImageCapture = (imageUrl: string, detectedItems: { [key: string]: number }) => {
-    setImages([...images, imageUrl])
+    console.log("[QuotePage] handleImageCapture called with detectedItems:", detectedItems, "imageUrl length:", imageUrl.length);
+    console.log("[QuotePage] Current imageToPassToDetector state:", imageToPassToDetector);
 
-    // Merge the newly detected items with the existing ones
+    setImages(prevImages => [...prevImages, imageUrl])
+
     const updatedFurniture = { ...detectedFurniture }
-
     Object.entries(detectedItems).forEach(([item, count]) => {
       updatedFurniture[item] = (updatedFurniture[item] || 0) + count
     })
-
     setDetectedFurniture(updatedFurniture)
+    console.log("[QuotePage] Updated detectedFurniture:", updatedFurniture);
+
+    // If this capture was triggered by an uploaded image (part of a batch)
+    if (imageToPassToDetector !== null) {
+      setImageToPassToDetector(null); // Signal that this image is processed
+      const newIndex = currentImageIndexToProcess + 1;
+      setCurrentImageIndexToProcess(newIndex); // Move to next image
+      console.log("[QuotePage] Batch processing: advancing to next image, index:", newIndex);
+      // processNextUploadedImage() will be called by the useEffect watching currentImageIndexToProcess
+    }
   }
 
-  const handleProcessImages = () => {
+  const handleProcessImages = () => { // This is the "Continue" button
     setIsProcessing(true)
-
-    // Since we're now detecting furniture in real-time,
-    // we can just move to the next step without additional processing
+    // This function is now simpler, as furniture is accumulated in real-time
+    // or after batch processing.
     setTimeout(() => {
       setIsProcessing(false)
       setStep(2)
@@ -65,33 +135,17 @@ export default function QuotePage() {
   }
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      Array.from(e.target.files).forEach((file) => {
-        const reader = new FileReader()
-        reader.onload = (event) => {
-          if (event.target?.result) {
-            // For uploaded images, we can't do real-time detection
-            // So we'll just add the image and use default furniture estimates
-            setImages([...images, event.target.result.toString()])
-
-            // Add some default furniture for uploaded images
-            // In a real app, you would send this to a server for processing
-            const defaultFurniture = {
-              Chair: 2,
-              Table: 1,
-              Sofa: 1,
-            }
-
-            const updatedFurniture = { ...detectedFurniture }
-            Object.entries(defaultFurniture).forEach(([item, count]) => {
-              updatedFurniture[item] = (updatedFurniture[item] || 0) + count
-            })
-
-            setDetectedFurniture(updatedFurniture)
-          }
-        }
-        reader.readAsDataURL(file)
-      })
+    if (e.target.files && e.target.files.length > 0) {
+      // Reset states for a new batch
+      setImages([])
+      setDetectedFurniture({})
+      setImageToPassToDetector(null)
+      
+      const filesArray = Array.from(e.target.files)
+      setUploadedImageFiles(filesArray)
+      setCurrentImageIndexToProcess(0) // Start from the first image
+      setIsBatchProcessing(true) // Signal that batch processing has started
+      // processNextUploadedImage() will be called by the useEffect watching currentImageIndexToProcess & isBatchProcessing
     }
   }
 
@@ -166,19 +220,22 @@ export default function QuotePage() {
                 </TabsList>
                 <TabsContent value="camera" className="mt-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                    <FurnitureDetector onCapture={handleImageCapture} />
+                    <FurnitureDetector 
+                        onCapture={handleImageCapture} 
+                        imageToProcess={imageToPassToDetector} 
+                    />
 
                     <div className="border rounded-lg p-4">
-                      <h3 className="font-medium mb-2">Captured Images ({images.length})</h3>
+                      <h3 className="font-medium mb-2">Processed Images ({images.length})</h3>
                       {images.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">No images captured yet</p>
+                        <p className="text-muted-foreground text-sm">No images processed yet.</p>
                       ) : (
                         <div className="grid grid-cols-2 gap-2">
                           {images.map((img, i) => (
                             <div key={i} className="aspect-video bg-muted rounded-md overflow-hidden">
                               <img
                                 src={img || "/placeholder.svg"}
-                                alt={`Room ${i + 1}`}
+                                alt={`Processed ${i + 1}`}
                                 className="w-full h-full object-cover"
                               />
                             </div>
@@ -190,19 +247,23 @@ export default function QuotePage() {
 
                   <div className="mt-4 text-sm text-muted-foreground">
                     <p className="mb-2">
-                      <strong>Having trouble with the camera?</strong>
+                      <strong>Camera Tips / Upload Info:</strong>
                     </p>
                     <ul className="list-disc pl-5 space-y-1">
-                      <li>Make sure you've granted camera permissions in your browser</li>
-                      <li>Try using a different browser (Chrome or Safari recommended)</li>
-                      <li>If on mobile, ensure the app has camera access in your device settings</li>
-                      <li>You can use the "Upload Images" option or switch to "Manual Entry" tab</li>
+                      <li>Ensure good lighting for camera or uploaded images.</li>
+                      <li>Grant camera permissions if using the camera.</li>
+                       {isBatchProcessing && (
+                        <li>Processing uploaded image {currentImageIndexToProcess + 1} of {uploadedImageFiles.length}...</li>
+                       )}
+                       {!isBatchProcessing && uploadedImageFiles.length > 0 && currentImageIndexToProcess >= uploadedImageFiles.length && (
+                        <li>All {uploadedImageFiles.length} uploaded images processed.</li>
+                       )}
                     </ul>
                   </div>
 
                   {Object.keys(detectedFurniture).length > 0 && (
                     <div className="mt-4 p-3 bg-muted rounded-lg">
-                      <h3 className="font-medium mb-2">Detected Furniture</h3>
+                      <h3 className="font-medium mb-2">Accumulated Detected Furniture</h3>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {Object.entries(detectedFurniture).map(([item, count]) => (
                           <div key={item} className="flex justify-between">
@@ -215,11 +276,24 @@ export default function QuotePage() {
                   )}
 
                   <div className="flex justify-between items-center mt-6">
-                    <p className="text-sm text-muted-foreground">
-                      {images.length} {images.length === 1 ? "image" : "images"} captured
-                    </p>
+                     <div>
+                        {isBatchProcessing ? (
+                            <p className="text-sm text-muted-foreground">
+                                Processing: {currentImageIndexToProcess +1} / {uploadedImageFiles.length}...
+                            </p>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">
+                                {images.length} {images.length === 1 ? "image" : "images"} processed.
+                                {uploadedImageFiles.length > 0 && images.length === uploadedImageFiles.length && " All uploads complete."}
+                            </p>
+                        )}
+                    </div>
                     <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => document.getElementById("file-upload")?.click()}>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => document.getElementById("file-upload")?.click()}
+                        disabled={isBatchProcessing}
+                       >
                         <Upload className="h-4 w-4 mr-2" />
                         Upload Images
                         <input
@@ -229,16 +303,22 @@ export default function QuotePage() {
                           multiple
                           className="hidden"
                           onChange={handleFileUpload}
+                          disabled={isBatchProcessing}
                         />
                       </Button>
                       <Button
                         onClick={handleProcessImages}
-                        disabled={images.length === 0 || isProcessing || Object.keys(detectedFurniture).length === 0}
+                        disabled={
+                            isBatchProcessing || // Disabled if batch is ongoing
+                            isProcessing || // General processing lock
+                            (images.length === 0 && Object.keys(detectedFurniture).length === 0) || // No images and no furniture
+                            (uploadedImageFiles.length > 0 && currentImageIndexToProcess < uploadedImageFiles.length) // Still batch processing
+                        }
                       >
-                        {isProcessing ? (
+                        {isProcessing || isBatchProcessing ? (
                           <>
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Processing...
+                            {isBatchProcessing ? `Processing Batch...` : `Processing...`}
                           </>
                         ) : (
                           "Continue"
