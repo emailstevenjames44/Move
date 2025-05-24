@@ -9,15 +9,10 @@ export function MainNav() {
         <span className="font-bold inline-block">MoveQuote</span>
       </Link>
       <nav className="flex gap-6">
-        <Link href="/" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground">
-          Home
+        <Link href="/quote" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground">
+          Home/Quote
         </Link>
-        <Link
-          href="/quote"
-          className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground"
-        >
-          Get a Quote
-        </Link>
+        {/* "Get a Quote" is removed as Home/Quote points to /quote */}
         <Link
           href="/services"
           className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground"
@@ -28,7 +23,13 @@ export function MainNav() {
           href="/contact"
           className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground"
         >
-          Contact
+          Contact Us
+        </Link>
+        <Link
+          href="/admin"
+          className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          Admin
         </Link>
       </nav>
     </div>
