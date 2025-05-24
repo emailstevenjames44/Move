@@ -46,6 +46,7 @@ export default function QuotePage() {
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null)
   const [newManualItemName, setNewManualItemName] = useState<string>("");
   const [newManualItemQuantity, setNewManualItemQuantity] = useState<number>(1);
+  const [isClientMounted, setIsClientMounted] = useState(false);
 
 
   // New state variables for batch upload
@@ -107,6 +108,10 @@ export default function QuotePage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentImageIndexToProcess, isBatchProcessing, uploadedImageFiles.length]);
+
+  useEffect(() => {
+    setIsClientMounted(true);
+  }, []);
 
 
   const handleImageCapture = (imageUrl: string, detectedItems: { [key: string]: number }) => {
@@ -457,10 +462,17 @@ export default function QuotePage() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                    <FurnitureDetector 
-                        onCapture={handleImageCapture} 
-                        imageToProcess={imageToPassToDetector} 
-                    />
+                    {isClientMounted ? (
+                      <FurnitureDetector 
+                          onCapture={handleImageCapture} 
+                          imageToProcess={imageToPassToDetector} 
+                      />
+                    ) : (
+                      <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
+                        <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />
+                        <p className="ml-2 text-muted-foreground">Loading Detector...</p>
+                      </div>
+                    )}
 
                     <div className="border rounded-lg p-4">
                       <h3 className="font-medium mb-2">Processed Image Previews ({images.length})</h3>
